@@ -2,6 +2,8 @@ const path = require('path');
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 const logger = require('./utils/logger');
+const { toSerializedId } = require('./utils/id');
+const { handleVote, addManualEntry, removeManualEntry } = require('./pollTracker');
 
 const client = new Client({
   authStrategy: new LocalAuth({
@@ -32,6 +34,10 @@ client.on('auth_failure', (message) => {
 
 client.on('disconnected', (reason) => {
   logger.warn(`WhatsApp desconectado: ${reason}`);
+});
+
+client.on('vote_update', (vote) => {
+  handleVote(client, vote);
 });
 
 client.on('message_create', async (message) => {
@@ -66,6 +72,42 @@ client.on('message_create', async (message) => {
       });
     } catch (error) {
       logger.error('Erro ao listar os grupos.', error);
+    }
+    return;
+  }
+
+  if (body.startsWith('!add ') || body.startsWith('!remove ')) {
+    const isAdd = body.startsWith('!add ');
+    const rawText = message.body.trim().slice(isAdd ? 5 : 8).trim();
+    // id.remote e o JID do chat de forma confiavel, independente de a mensagem
+    // ser do proprio bot (fromMe) ou de outra pessoa no grupo.
+    const chatId = toSerializedId(message.id.remote);
+
+    if (!rawText) {
+      await message.reply(
+        isAdd ? 'Use: !add [chave] Nome da pessoa' : 'Use: !remove Nome da pessoa'
+      );
+      return;
+    }
+
+    try {
+      if (isAdd) {
+        const resolvedName = await addManualEntry(client, chatId, rawText);
+        await message.reply(
+          resolvedName
+            ? `"${resolvedName}" adicionado(a) na lista.`
+            : 'Nao ha lista ativa neste grupo para adicionar.'
+        );
+      } else {
+        const removed = await removeManualEntry(client, chatId, rawText);
+        await message.reply(
+          removed
+            ? `"${rawText}" removido(a) da lista.`
+            : 'Nao encontrei esse nome na lista (ou nao ha lista ativa).'
+        );
+      }
+    } catch (error) {
+      logger.error(`Erro ao processar o comando "${isAdd ? '!add' : '!remove'}".`, error);
     }
   }
 });

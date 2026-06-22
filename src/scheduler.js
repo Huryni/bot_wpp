@@ -1,6 +1,9 @@
 const cron = require('node-cron');
+const { Poll } = require('whatsapp-web.js');
 const logger = require('./utils/logger');
 const config = require('./config');
+const { createPollRoster } = require('./pollTracker');
+const { getMode } = require('./modes');
 
 async function sendToGroup(client, job) {
   try {
@@ -11,10 +14,20 @@ async function sendToGroup(client, job) {
       return;
     }
 
-    await chat.sendMessage(job.message);
-    logger.success(`Mensagem enviada com sucesso para "${chat.name}".`);
+    const mode = getMode(job.mode);
+    const poll = new Poll('Quer?', mode.options);
+    const pollMessage = await chat.sendMessage(poll);
+    logger.success(`Enquete enviada com sucesso para "${chat.name}".`);
+
+    await createPollRoster(client, pollMessage.id._serialized, chat.id._serialized, job.mode, {
+      gameWeekday: job.gameWeekday,
+      gameTime: job.gameTime,
+      price: job.price,
+      pixKey: job.pixKey,
+      pixName: job.pixName,
+    });
   } catch (error) {
-    logger.error(`Erro ao enviar mensagem para o grupo "${job.groupId}".`, error);
+    logger.error(`Erro ao enviar enquete para o grupo "${job.groupId}".`, error);
   }
 }
 
